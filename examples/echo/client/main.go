@@ -29,14 +29,16 @@ func main() {
 	ncli := nrpc.NewClient(nc, "someid")
 
 	cli := echo.NewEchoClient(ncli)
-	/*
-		reply, err := cli.SayHello(context.TODO(), &echo.HelloRequest{Msg: "hello"})
-		if err != nil {
-			log.Printf("SayHello: error %v\n", err)
-			return
-		}
-		log.Printf("SayHello: %s\n", reply.GetMsg())
-	*/
+
+	//Request
+	reply, err := cli.SayHello(context.TODO(), &echo.HelloRequest{Msg: "hello"})
+	if err != nil {
+		log.Printf("SayHello: error %v\n", err)
+		return
+	}
+	log.Printf("SayHello: %s\n", reply.GetMsg())
+
+	//Streaming
 	header := metadata.New(map[string]string{"key1": "val1", "key2": "val2"})
 	trailer := metadata.New(map[string]string{"key3": "val3", "key4": "val4"})
 
