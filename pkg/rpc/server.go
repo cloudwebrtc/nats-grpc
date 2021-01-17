@@ -127,6 +127,7 @@ func (p *Server) onMessage(msg *nats.Msg) {
 		go stream.onRequest(msg)
 	} else {
 		go stream.onMessage(msg)
+		//TODO: remove stream when nrpc.End recevied.
 	}
 	p.mu.Unlock()
 }
