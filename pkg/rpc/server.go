@@ -7,7 +7,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/go-nats"
 	"github.com/sirupsen/logrus"
@@ -116,7 +115,7 @@ func (p *Server) RegisterService(sd *grpc.ServiceDesc, ss interface{}) {
 }
 
 func (p *Server) onMessage(msg *nats.Msg) {
-	//p.log.Infof("Proxy.onMessage: subject %v, replay %v, data %v", msg.Subject, msg.Reply, string(msg.Data))
+	p.log.Infof("Proxy.onMessage: subject %v, replay %v, data %v", msg.Subject, msg.Reply, string(msg.Data))
 	method := msg.Subject
 	log := p.log.WithField("method", method)
 
@@ -150,7 +149,6 @@ type serverStream struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	proxy     *Server
-	routing   *nrpc.Routing
 	log       *logrus.Entry
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte

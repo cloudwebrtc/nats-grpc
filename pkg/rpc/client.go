@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/cloudwebrtc/nats-grpc/pkg/utils"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/go-nats"
@@ -70,9 +69,12 @@ func (c *Client) Invoke(ctx context.Context, method string, args interface{}, re
 
 // NewStream begins a streaming RPC.
 func (c *Client) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
-	subj := "nrpc" + strings.ReplaceAll(method, "/", ".")
+	prefix := "nrpc"
+	if len(c.id) > 0 {
+		prefix = fmt.Sprintf("nrpc.%v", c.id)
+	}
+	subj := prefix + strings.ReplaceAll(method, "/", ".")
 	stream := newClientStream(ctx, c, subj, c.log)
-	//PublishRequest
 	return stream, nil
 }
 
@@ -80,7 +82,6 @@ type clientStream struct {
 	header  metadata.MD
 	trailer metadata.MD
 	context context.Context
-	routing *nrpc.Routing
 	log     *logrus.Entry
 	client  *Client
 	subject string

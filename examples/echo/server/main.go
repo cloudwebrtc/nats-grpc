@@ -46,7 +46,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	ncs := rpc.NewServer(nc, "")
+	ncs := rpc.NewServer(nc, "someid")
 	echo.RegisterEchoServer(ncs, &echoServer{})
 
 	// Keep running until ^C.

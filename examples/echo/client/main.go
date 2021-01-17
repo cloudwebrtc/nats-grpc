@@ -26,7 +26,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	ncli := nrpc.NewClient(nc, "")
+	ncli := nrpc.NewClient(nc, "someid")
 
 	cli := echo.NewEchoClient(ncli)
 	/*
@@ -57,7 +57,10 @@ func main() {
 			break
 		}
 		log.Printf("Echo: %s", reply.GetMsg())
-		stream.CloseSend()
-		break
+		stream.Send(&echo.EchoRequest{
+			Msg: "hello",
+		})
+		//stream.CloseSend()
+		//break
 	}
 }
