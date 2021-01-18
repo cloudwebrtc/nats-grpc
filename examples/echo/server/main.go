@@ -30,6 +30,11 @@ func (e *echoServer) Echo(stream echo.Echo_EchoServer) error {
 		stream.Send(&echo.EchoReply{
 			Msg: req.Msg + fmt.Sprintf(" world-%v", i),
 		})
+
+		if i >= 100 {
+			//stop loop now, close streaming from server side.
+			return nil
+		}
 	}
 }
 

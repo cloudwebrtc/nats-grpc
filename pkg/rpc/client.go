@@ -194,7 +194,6 @@ func (c *clientStream) onMessage(msg *nats.Msg) error {
 	case *nrpc.Response_End:
 		//c.log.WithField("end", r.End).Info("recv end")
 		c.processEnd(r.End)
-		c.close(nil)
 		//request ended.
 		return fmt.Errorf("Ended")
 	}
@@ -363,7 +362,11 @@ func (c *clientStream) processEnd(end *nrpc.End) {
 
 	if end.Status != nil {
 		c.log.WithField("status", end.Status).Info("cancel")
+		c.done()
 	} else {
 		c.log.Info("Server CloseSend")
+		c.recvWrite <- nil
+		close(c.recvWrite)
+		c.recvWrite = nil
 	}
 }

@@ -64,13 +64,18 @@ func main() {
 			break
 		}
 		log.Printf("EchoReply: reply.Msg => %s, count => %v", reply.Msg, i)
-		stream.Send(&echo.EchoRequest{
-			Msg: fmt.Sprintf("hello-%v", i),
-		})
+
 		i++
-		if i >= 100 {
-			stream.CloseSend()
-			break
+		if i <= 100 {
+			/*
+				//stop loop now, close streaming from client side.
+				stream.CloseSend()
+				break
+			*/
+			stream.Send(&echo.EchoRequest{
+				Msg: fmt.Sprintf("hello-%v", i),
+			})
 		}
 	}
+
 }
