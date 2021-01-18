@@ -155,9 +155,9 @@ func (p *Server) onMessage(msg *nats.Msg) {
 	go stream.onMessage(msg)
 }
 
-func (p *Server) remove(subj string) {
+func (p *Server) remove(reply string) {
 	p.mu.Lock()
-	delete(p.streams, subj)
+	delete(p.streams, reply)
 	p.mu.Unlock()
 }
 
@@ -251,8 +251,9 @@ func (s *serverStream) processEnd(end *nrpc.End) {
 	if end.Status != nil {
 		s.log.WithField("status", end.Status).Info("cancel")
 		s.done()
-	} else if s.recvWrite != nil {
+	} else {
 		s.log.Info("closeSend")
+		s.recvWrite <- nil
 		close(s.recvWrite)
 		s.recvWrite = nil
 	}

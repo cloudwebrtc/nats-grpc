@@ -159,6 +159,9 @@ func (c *clientStream) Trailer() metadata.MD {
 
 func (c *clientStream) CloseSend() error {
 	c.log.Info("Client CloseSend")
+	c.writeEnd(&nrpc.End{
+		Status: status.Convert(nil).Proto(),
+	})
 	return c.done()
 }
 
