@@ -4,7 +4,9 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/nats-io/go-nats"
+	"google.golang.org/grpc/metadata"
 )
 
 // RandInt .
@@ -48,4 +50,19 @@ func GenerateRandomString(n int) (string, error) {
 
 func NewInBox() string {
 	return nats.NewInbox()
+}
+
+func MakeMetadata(md metadata.MD) *nrpc.Metadata {
+	if md == nil || md.Len() == 0 {
+		return nil
+	}
+	result := make(map[string]*nrpc.Strings, md.Len())
+	for key, values := range md {
+		result[key] = &nrpc.Strings{
+			Values: values,
+		}
+	}
+	return &nrpc.Metadata{
+		Md: result,
+	}
 }

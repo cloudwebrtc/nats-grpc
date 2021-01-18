@@ -9,7 +9,6 @@ service Echo {
     rpc Echo(stream EchoRequest) returns (stream EchoReply) {}
 }
 
-
 message HelloRequest {
     string msg = 1;
 }

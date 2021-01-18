@@ -7,6 +7,8 @@ import (
 	"io"
 	"sync"
 
+	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
+	"github.com/cloudwebrtc/nats-grpc/pkg/utils"
 	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/go-nats"
 	"github.com/sirupsen/logrus"
@@ -19,10 +21,34 @@ import (
 // redefine grpc.serverMethodHandler as it is not exposed
 type serverMethodHandler func(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error)
 
+type serverTransportStream struct {
+	stream *serverStream
+}
+
+func (s *serverTransportStream) Method() string {
+	return s.stream.method
+}
+func (s *serverTransportStream) SetHeader(md metadata.MD) error {
+	return s.stream.SetHeader(md)
+}
+
+func (s *serverTransportStream) SendHeader(md metadata.MD) error {
+	return s.stream.SendHeader(md)
+}
+
+func (s *serverTransportStream) SetTrailer(md metadata.MD) error {
+	s.stream.SetTrailer(md)
+	return nil
+}
+
 func serverUnaryHandler(srv interface{}, handler serverMethodHandler) handlerFunc {
 	return func(s *serverStream) {
 		var interceptor grpc.UnaryServerInterceptor = nil
-		response, err := handler(srv, s.ctx, s.RecvMsg, interceptor)
+		ctx := grpc.NewContextWithServerTransportStream(s.Context(), &serverTransportStream{stream: s})
+		if s.md != nil {
+			ctx = metadata.NewIncomingContext(ctx, s.md)
+		}
+		response, err := handler(srv, ctx, s.RecvMsg, interceptor)
 		if s.ctx.Err() == nil {
 			if err != nil {
 				st, _ := status.FromError(err)
@@ -115,7 +141,7 @@ func (p *Server) RegisterService(sd *grpc.ServiceDesc, ss interface{}) {
 }
 
 func (p *Server) onMessage(msg *nats.Msg) {
-	p.log.Infof("Proxy.onMessage: subject %v, replay %v, data %v", msg.Subject, msg.Reply, string(msg.Data))
+	//p.log.Infof("Proxy.onMessage: subject %v, replay %v, data %v", msg.Subject, msg.Reply, string(msg.Data))
 	method := msg.Subject
 	log := p.log.WithField("method", method)
 
@@ -124,12 +150,9 @@ func (p *Server) onMessage(msg *nats.Msg) {
 	if !ok {
 		stream = newServerStream(p, method, msg.Reply, log)
 		p.streams[msg.Reply] = stream
-		go stream.onRequest(msg)
-	} else {
-		go stream.onMessage(msg)
-		//TODO: remove stream when nrpc.End recevied.
 	}
 	p.mu.Unlock()
+	go stream.onMessage2(msg)
 }
 
 func (p *Server) remove(subj string) {
@@ -154,8 +177,9 @@ type serverStream struct {
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte
 	hasBegun  bool
-	header    metadata.MD
-	trailer   metadata.MD
+	md        metadata.MD // recevied metadata from client
+	header    metadata.MD // send header to client
+	trailer   metadata.MD // send trialer to client
 	method    string
 	reply     string
 }
@@ -190,6 +214,73 @@ func (s *serverStream) onRequest(msg *nats.Msg) {
 	go handlerFunc(s)
 }
 
+func (s *serverStream) onRequest2(msg *nats.Msg, request *nrpc.Request) {
+	switch r := request.Type.(type) {
+	case *nrpc.Request_Call:
+		//s.log.WithField("call", r.Call).Info("recv call")
+		s.processCall(r.Call)
+	case *nrpc.Request_Data:
+		//s.log.WithField("data", r.Data).Info("recv data")
+		s.processData(r.Data)
+	case *nrpc.Request_End:
+		//s.log.WithField("end", r.End).Info("recv end")
+		s.processEnd(r.End)
+	}
+}
+
+func (s *serverStream) processCall(call *nrpc.Call) {
+	s.log = s.log.WithField("method", s.method)
+	handlerFunc, ok := s.proxy.handlers[s.method]
+	if !ok {
+		s.close(status.Error(codes.Unimplemented, codes.Unimplemented.String()))
+		return
+	}
+	// save metadata to context
+	if call.Metadata != nil {
+		md := make(metadata.MD)
+		for hdr, data := range call.Metadata.Md {
+			md[hdr] = data.Values
+		}
+		if s.md == nil {
+			s.md = md
+		} else if md != nil {
+			s.md = metadata.Join(s.md, md)
+		}
+	}
+	go handlerFunc(s)
+}
+
+func (s *serverStream) processData(data *nrpc.Data) {
+	if s.recvWrite == nil {
+		s.log.Error("data received after client closeSend")
+		return
+	}
+	s.recvWrite <- data.Data
+}
+
+func (s *serverStream) processEnd(end *nrpc.End) {
+	if end.Status != nil {
+		s.log.WithField("status", end.Status).Info("cancel")
+		s.done()
+	} else {
+		s.log.Info("closeSend")
+		close(s.recvWrite)
+		s.recvWrite = nil
+	}
+}
+
+func (s *serverStream) beginMaybe() error {
+	if !s.hasBegun {
+		s.hasBegun = true
+		if s.header != nil {
+			return s.writeBegin(&nrpc.Begin{
+				Header: utils.MakeMetadata(s.header),
+			})
+		}
+	}
+	return nil
+}
+
 func (s *serverStream) onMessage(msg *nats.Msg) {
 	if s.recvWrite == nil {
 		s.log.Error("data received after client closeSend")
@@ -198,17 +289,31 @@ func (s *serverStream) onMessage(msg *nats.Msg) {
 	s.recvWrite <- msg.Data
 }
 
-func (s *serverStream) close(err error) {
+func (s *serverStream) onMessage2(msg *nats.Msg) {
+	request := &nrpc.Request{}
+	err := proto.Unmarshal(msg.Data, request)
 	if err != nil {
-		st, _ := status.FromError(err)
-		s.SendMsg(st.Proto())
+		s.log.WithField("data", string(msg.Data)).Error("unknown message")
 	}
+
+	go s.onRequest2(msg, request)
+}
+
+func (s *serverStream) close(err error) {
+	s.beginMaybe()
+	s.writeEnd(&nrpc.End{
+		Status:  status.Convert(err).Proto(),
+		Trailer: utils.MakeMetadata(s.trailer),
+	})
 	s.done()
 }
 
 //
 // Server Stream interface
 //
+func (s *serverStream) Method() string {
+	return s.method
+}
 
 func (s *serverStream) SetHeader(header metadata.MD) error {
 	if s.hasBegun {
@@ -227,7 +332,7 @@ func (s *serverStream) SendHeader(header metadata.MD) error {
 	if err != nil {
 		return err
 	}
-	return nil
+	return s.beginMaybe()
 }
 
 func (s *serverStream) SetTrailer(trailer metadata.MD) {
@@ -249,9 +354,14 @@ func (s *serverStream) SendMsg(m interface{}) (err error) {
 		}
 	}()
 
-	data, err := proto.Marshal(m.(proto.Message))
+	err = s.beginMaybe()
 	if err == nil {
-		err = s.proxy.nc.Publish(s.reply, data)
+		data, err := proto.Marshal(m.(proto.Message))
+		if err == nil {
+			err = s.writeData(&nrpc.Data{
+				Data: data,
+			})
+		}
 	}
 	return
 }
@@ -266,4 +376,37 @@ func (s *serverStream) RecvMsg(m interface{}) error {
 		}
 		return io.EOF
 	}
+}
+
+func (s *serverStream) writeResponse(response *nrpc.Response) error {
+	//s.log.WithField("response", response).Info("send")
+	data, err := proto.Marshal(response)
+	if err != nil {
+		return err
+	}
+	return s.proxy.nc.Publish(s.reply, data)
+}
+
+func (s *serverStream) writeBegin(begin *nrpc.Begin) error {
+	return s.writeResponse(&nrpc.Response{
+		Type: &nrpc.Response_Begin{
+			Begin: begin,
+		},
+	})
+}
+
+func (s *serverStream) writeData(data *nrpc.Data) error {
+	return s.writeResponse(&nrpc.Response{
+		Type: &nrpc.Response_Data{
+			Data: data,
+		},
+	})
+}
+
+func (s *serverStream) writeEnd(end *nrpc.End) error {
+	return s.writeResponse(&nrpc.Response{
+		Type: &nrpc.Response_End{
+			End: end,
+		},
+	})
 }

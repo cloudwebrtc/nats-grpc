@@ -10,9 +10,9 @@ rm -fr ${OUT_DIR}
 mkdir -p ${OUT_DIR}
 touch ${OUT_DIR}/.generated
 
-#protoc -I ${SRC_DIR} \
-#	--go_out=plugins=grpc:${OUT_DIR} \
-#	${SRC_DIR}/nrpc/nrpc.proto \
+protoc -I ${SRC_DIR} \
+	--go_out=plugins=grpc:${OUT_DIR} \
+	${SRC_DIR}/nrpc/nrpc.proto \
 
 protoc -I ${SRC_DIR} \
 	--go_out=${OUT_DIR} \

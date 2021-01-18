@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package nrpc;
+
+import "google/rpc/status.proto";
+
+message Request {
+	oneof type {
+		Call call = 2;
+		Data data = 3;
+		End end = 4;
+	}
+}
+
+message Response {
+	oneof type {
+		Begin begin = 2;
+		Data data = 3;
+		End end = 4;
+	}
+}
+
+message Strings {
+	repeated string values = 1;
+}
+
+message Metadata {
+	map<string, Strings> md = 1;
+}
+
+message Call {
+	string method = 1;
+	Metadata metadata = 2;
+}
+
+message Begin {
+	Metadata header = 1;
+}
+
+message Data {
+	bytes data = 1;
+}
+
+message End {
+	google.rpc.Status status = 1;
+	Metadata trailer = 2;
+}
