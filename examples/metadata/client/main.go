@@ -10,6 +10,7 @@ import (
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/echo"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/go-nats"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -38,39 +39,30 @@ func main() {
 	md := metadata.Pairs("timestamp", time.Now().Format(timestampFormat))
 	ctx := metadata.NewOutgoingContext(context.Background(), md)
 
+	// Make RPC using the context with the metadata.
+	var header, trailer metadata.MD
 	//Request
-	reply, err := cli.SayHello(ctx, &echo.HelloRequest{Msg: "hello"})
+	reply, err := cli.SayHello(ctx, &echo.HelloRequest{Msg: "hello"}, grpc.Header(&header), grpc.Trailer(&trailer))
 	if err != nil {
 		log.Printf("SayHello: error %v\n", err)
 		return
 	}
 	log.Printf("SayHello: %s\n", reply.GetMsg())
 
-	//Streaming
-	stream, err := cli.Echo(ctx)
-	if err != nil {
-		log.Fatal(err)
+	if t, ok := header["timestamp"]; ok {
+		fmt.Printf("timestamp from header:\n")
+		for i, e := range t {
+			fmt.Printf(" %d. %s\n", i, e)
+		}
+	} else {
+		log.Fatal("timestamp expected but doesn't exist in header")
 	}
-
-	stream.Send(&echo.EchoRequest{
-		Msg: "hello",
-	})
-
-	i := 1
-	for {
-		reply, err := stream.Recv()
-		if err != nil {
-			log.Fatalf("Echo: err %s", err)
-			break
+	if l, ok := header["location"]; ok {
+		fmt.Printf("location from header:\n")
+		for i, e := range l {
+			fmt.Printf(" %d. %s\n", i, e)
 		}
-		log.Printf("EchoReply: reply.Msg => %s, count => %v", reply.Msg, i)
-		stream.Send(&echo.EchoRequest{
-			Msg: fmt.Sprintf("hello-%v", i),
-		})
-		i++
-		if i >= 100 {
-			stream.CloseSend()
-			break
-		}
+	} else {
+		log.Fatal("location expected but doesn't exist in header")
 	}
 }

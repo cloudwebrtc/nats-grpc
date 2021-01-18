@@ -2,12 +2,12 @@ package rpc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/cloudwebrtc/nats-grpc/pkg/utils"
@@ -96,8 +96,9 @@ type clientStream struct {
 	client    *Client
 	subject   string
 	reply     string
+	msgCh     chan *nats.Msg
 	sub       *nats.Subscription
-	closeSend bool
+	closed    bool
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte
 	hasBegun  bool
@@ -105,32 +106,34 @@ type clientStream struct {
 
 func newClientStream(ctx context.Context, client *Client, subj string, log *logrus.Entry, opts ...grpc.CallOption) *clientStream {
 	stream := &clientStream{
-		client:    client,
-		log:       log,
-		subject:   subj,
-		reply:     utils.NewInBox(),
-		closeSend: false,
+		client:  client,
+		log:     log,
+		subject: subj,
+		reply:   utils.NewInBox(),
+		closed:  false,
 	}
 	stream.ctx, stream.cancel = context.WithCancel(ctx)
-	stream.sub, _ = client.nc.SubscribeSync(stream.reply)
 
 	recv := make(chan []byte, 1)
 	stream.recvRead = recv
 	stream.recvWrite = recv
 
+	stream.msgCh = make(chan *nats.Msg, 1)
+	stream.sub, _ = client.nc.ChanSubscribe(stream.reply, stream.msgCh)
+
 	md, ok := metadata.FromOutgoingContext(ctx)
 	if ok {
-		log.Printf("stream outgoing md => %v", md)
+		//log.Printf("stream outgoing md => %v", md)
 		stream.md = &md
 	}
 
 	for _, o := range opts {
 		switch o := o.(type) {
 		case grpc.HeaderCallOption:
-			log.Printf("o.HeaderAddr => %v", o.HeaderAddr)
+			//log.Printf("o.HeaderAddr => %v", o.HeaderAddr)
 			stream.header = o.HeaderAddr
 		case grpc.TrailerCallOption:
-			log.Printf("o.TrailerAddr => %v", o.TrailerAddr)
+			//log.Printf("o.TrailerAddr => %v", o.TrailerAddr)
 			stream.trailer = o.TrailerAddr
 		case grpc.PeerCallOption:
 		case grpc.PerRPCCredsCallOption:
@@ -155,57 +158,78 @@ func (c *clientStream) Trailer() metadata.MD {
 }
 
 func (c *clientStream) CloseSend() error {
-	c.closeSend = true
-	end := &nrpc.End{
-		Status: nil,
-	}
-	//write end
-	c.writeEnd(end)
+	c.log.Info("Client CloseSend")
+	return c.done()
+}
+
+func (c *clientStream) close(err error) {
+	c.writeEnd(&nrpc.End{
+		Status: status.Convert(err).Proto(),
+	})
 	c.done()
-	c.client.remove(c.subject)
-	return nil
 }
 
 func (c *clientStream) Context() context.Context {
 	return c.ctx
 }
 
+func (c *clientStream) onMessage(msg *nats.Msg) error {
+	response := &nrpc.Response{}
+	err := proto.Unmarshal(msg.Data, response)
+	if err != nil {
+		c.log.WithField("data", string(msg.Data)).Error("unknown message")
+		return err
+	}
+
+	switch r := response.Type.(type) {
+	case *nrpc.Response_Begin:
+		//c.log.WithField("call", r.Begin).Info("recv call")
+		c.processBegin(r.Begin)
+	case *nrpc.Response_Data:
+		//c.log.WithField("data", r.Data).Info("recv data")
+		c.processData(r.Data)
+	case *nrpc.Response_End:
+		//c.log.WithField("end", r.End).Info("recv end")
+		c.processEnd(r.End)
+		c.close(nil)
+		//request ended.
+		return fmt.Errorf("Ended")
+	}
+	return nil
+}
+
 func (c *clientStream) ReadMsg() error {
 	for {
-		msg, err := c.sub.NextMsg(time.Second * 30)
-		if err != nil {
-			return err
-		}
-		response, err := c.onMessage(msg)
-		if err != nil {
-			return err
-		}
-		switch r := response.Type.(type) {
-		case *nrpc.Response_Begin:
-			//c.log.WithField("call", r.Begin).Info("recv call")
-			c.processBegin(r.Begin)
-		case *nrpc.Response_Data:
-			//c.log.WithField("data", r.Data).Info("recv data")
-			c.processData(r.Data)
-		case *nrpc.Response_End:
-			//c.log.WithField("end", r.End).Info("recv end")
-			_, err = c.processEnd(r.End)
-			c.done()
-			c.client.remove(c.reply)
-			//request ended.
-			return err
+		select {
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		case msg, ok := <-c.msgCh:
+			if ok {
+				err := c.onMessage(msg)
+				if err != nil {
+					return err
+				}
+				break
+			}
+			return io.EOF
 		}
 	}
 }
 
 func (c *clientStream) done() error {
-	c.cancel()
-	return c.sub.Unsubscribe()
+	if !c.closed {
+		c.closed = true
+		c.cancel()
+		close(c.msgCh)
+		c.client.remove(c.subject)
+		return c.sub.Unsubscribe()
+	}
+	return errors.New("Client Streaming already closed")
 }
 
 func (c *clientStream) SendMsg(m interface{}) error {
-	if c.closeSend {
-		return fmt.Errorf("closeSend=true")
+	if c.closed {
+		return fmt.Errorf("client streaming closed=true")
 	}
 
 	if !c.hasBegun {
@@ -251,32 +275,21 @@ func (c *clientStream) Invoke(ctx context.Context, method string, args interface
 		return err
 	}
 
-	md := utils.MakeMetadata(*c.md)
-	call := &nrpc.Call{
-		Method:   method,
-		Metadata: md,
-	}
 	//write call with metatdata
-	c.writeCall(call)
-
-	data := &nrpc.Data{
-		Data: payload,
-	}
+	c.writeCall(&nrpc.Call{
+		Method:   method,
+		Metadata: utils.MakeMetadata(*c.md),
+	})
 
 	//write grpc args
-	c.writeData(data)
-
-	end := &nrpc.End{
-		Status: nil,
-	}
+	c.writeData(&nrpc.Data{
+		Data: payload,
+	})
 
 	err = c.RecvMsg(reply)
-	if err != nil {
-		end.Status = status.Convert(err).Proto()
-	}
 
-	//write end
-	c.writeEnd(end)
+	c.CloseSend()
+
 	return err
 }
 
@@ -313,33 +326,6 @@ func (c *clientStream) writeEnd(end *nrpc.End) error {
 	})
 }
 
-func (c *clientStream) onMessage(msg *nats.Msg) (*nrpc.Response, error) {
-	response := &nrpc.Response{}
-	err := proto.Unmarshal(msg.Data, response)
-	if err != nil {
-		c.log.WithField("data", string(msg.Data)).Error("unknown message")
-		return nil, err
-	}
-	return response, nil
-}
-
-func (c *clientStream) onResponse(resp *nrpc.Response) error {
-	switch r := resp.Type.(type) {
-	case *nrpc.Response_Begin:
-		c.log.WithField("call", r.Begin).Info("recv call")
-		c.processBegin(r.Begin)
-	case *nrpc.Response_Data:
-		c.log.WithField("data", r.Data).Info("recv data")
-		c.processData(r.Data)
-	case *nrpc.Response_End:
-		c.log.WithField("end", r.End).Info("recv end")
-		c.processEnd(r.End)
-		c.client.remove(c.reply)
-		c.done()
-	}
-	return nil
-}
-
 func (c *clientStream) processBegin(begin *nrpc.Begin) error {
 	c.log = c.log.WithField("nrpc.Begin", begin.Header)
 	if begin.Header != nil && c.header != nil {
@@ -361,7 +347,7 @@ func (c *clientStream) processData(data *nrpc.Data) {
 	c.recvWrite <- data.Data
 }
 
-func (c *clientStream) processEnd(end *nrpc.End) (*status.Status, error) {
+func (c *clientStream) processEnd(end *nrpc.End) {
 
 	if end.Trailer != nil && c.trailer != nil {
 		if *c.trailer == nil {
@@ -375,8 +361,6 @@ func (c *clientStream) processEnd(end *nrpc.End) (*status.Status, error) {
 	if end.Status != nil {
 		c.log.WithField("status", end.Status).Info("cancel")
 	} else {
-		c.log.Info("Server closeSend")
+		c.log.Info("Server CloseSend")
 	}
-
-	return nil, nil
 }

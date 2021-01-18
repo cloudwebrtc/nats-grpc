@@ -152,7 +152,7 @@ func (p *Server) onMessage(msg *nats.Msg) {
 		p.streams[msg.Reply] = stream
 	}
 	p.mu.Unlock()
-	go stream.onMessage2(msg)
+	go stream.onMessage(msg)
 }
 
 func (p *Server) remove(subj string) {
@@ -203,18 +203,7 @@ func (s *serverStream) done() {
 	s.proxy.remove(s.reply)
 }
 
-func (s *serverStream) onRequest(msg *nats.Msg) {
-	s.log = s.log.WithField("method", s.method)
-	handlerFunc, ok := s.proxy.handlers[s.method]
-	if !ok {
-		s.close(status.Error(codes.Unimplemented, codes.Unimplemented.String()))
-		return
-	}
-	s.recvWrite <- msg.Data
-	go handlerFunc(s)
-}
-
-func (s *serverStream) onRequest2(msg *nats.Msg, request *nrpc.Request) {
+func (s *serverStream) onRequest(msg *nats.Msg, request *nrpc.Request) {
 	switch r := request.Type.(type) {
 	case *nrpc.Request_Call:
 		//s.log.WithField("call", r.Call).Info("recv call")
@@ -262,7 +251,7 @@ func (s *serverStream) processEnd(end *nrpc.End) {
 	if end.Status != nil {
 		s.log.WithField("status", end.Status).Info("cancel")
 		s.done()
-	} else {
+	} else if s.recvWrite != nil {
 		s.log.Info("closeSend")
 		close(s.recvWrite)
 		s.recvWrite = nil
@@ -282,21 +271,13 @@ func (s *serverStream) beginMaybe() error {
 }
 
 func (s *serverStream) onMessage(msg *nats.Msg) {
-	if s.recvWrite == nil {
-		s.log.Error("data received after client closeSend")
-		return
-	}
-	s.recvWrite <- msg.Data
-}
-
-func (s *serverStream) onMessage2(msg *nats.Msg) {
 	request := &nrpc.Request{}
 	err := proto.Unmarshal(msg.Data, request)
 	if err != nil {
 		s.log.WithField("data", string(msg.Data)).Error("unknown message")
 	}
 
-	go s.onRequest2(msg, request)
+	go s.onRequest(msg, request)
 }
 
 func (s *serverStream) close(err error) {
