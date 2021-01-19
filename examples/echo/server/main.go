@@ -7,7 +7,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/cloudwebrtc/nats-grpc/pkg/protos/echo"
+	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/go-nats"
 )

@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/cloudwebrtc/nats-grpc/pkg/protos/echo"
+	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/go-nats"

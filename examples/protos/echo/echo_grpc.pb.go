@@ -166,5 +166,5 @@ var Echo_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "echo/echo.proto",
+	Metadata: "echo.proto",
 }
