@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/echo"
+	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/go-nats"
 	"google.golang.org/grpc"
@@ -24,8 +25,11 @@ func main() {
 		natsURL = os.Args[1]
 	}
 
+	opts := []nats.Option{nats.Name("nats-grpc echo client")}
+	opts = rpc.SetupConnOptions(opts)
+
 	// Connect to the NATS server.
-	nc, err := nats.Connect(natsURL, nats.Timeout(5*time.Second))
+	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}

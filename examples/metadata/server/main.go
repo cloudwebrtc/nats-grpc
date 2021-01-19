@@ -52,8 +52,12 @@ func main() {
 	if len(os.Args) == 2 {
 		natsURL = os.Args[1]
 	}
+
+	opts := []nats.Option{nats.Name("nats-grpc echo client")}
+	opts = rpc.SetupConnOptions(opts)
+
 	// Connect to the NATS server.
-	nc, err := nats.Connect(natsURL, nats.Timeout(5*time.Second))
+	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
