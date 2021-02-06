@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
-	"github.com/nats-io/go-nats"
+	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc/metadata"
 )
 
