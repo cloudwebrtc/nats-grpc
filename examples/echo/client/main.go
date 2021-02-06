@@ -11,7 +11,6 @@ import (
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/nats.go"
-	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -38,11 +37,8 @@ func main() {
 
 	cli := echo.NewEchoClient(ncli)
 
-	// Create metadata and context.
-	md := metadata.Pairs("timestamp", time.Now().Format(timestampFormat))
-	ctx2, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 1000*time.Millisecond)
 	defer cancel()
-	ctx := metadata.NewOutgoingContext(ctx2, md)
 
 	//Request
 	reply, err := cli.SayHello(ctx, &echo.HelloRequest{Msg: "hello"})

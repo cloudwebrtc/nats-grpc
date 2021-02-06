@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/sirupsen/logrus"
 	grpc "google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
@@ -90,6 +91,7 @@ type clientStream struct {
 	md        *metadata.MD
 	header    *metadata.MD
 	trailer   *metadata.MD
+	lastErr   error
 	ctx       context.Context
 	cancel    context.CancelFunc
 	log       *logrus.Entry
@@ -193,9 +195,7 @@ func (c *clientStream) onMessage(msg *nats.Msg) error {
 		c.processData(r.Data)
 	case *nrpc.Response_End:
 		//c.log.WithField("end", r.End).Info("recv end")
-		c.processEnd(r.End)
-		//request ended.
-		return fmt.Errorf("Ended")
+		return c.processEnd(r.End)
 	}
 	return nil
 }
@@ -209,6 +209,7 @@ func (c *clientStream) ReadMsg() error {
 			if ok {
 				err := c.onMessage(msg)
 				if err != nil {
+					c.lastErr = err
 					return err
 				}
 				break
@@ -236,11 +237,11 @@ func (c *clientStream) SendMsg(m interface{}) error {
 
 	if !c.hasBegun {
 		c.hasBegun = true
-
-		md := utils.MakeMetadata(*c.md)
 		call := &nrpc.Call{
-			Method:   c.subject,
-			Metadata: md,
+			Method: c.subject,
+		}
+		if c.md != nil {
+			call.Metadata = utils.MakeMetadata(*c.md)
 		}
 		//write call with metatdata
 		c.writeCall(call)
@@ -261,6 +262,9 @@ func (c *clientStream) SendMsg(m interface{}) error {
 func (c *clientStream) RecvMsg(m interface{}) error {
 	select {
 	case <-c.ctx.Done():
+		if c.lastErr != nil {
+			return c.lastErr
+		}
 		return c.ctx.Err()
 	case bytes, ok := <-c.recvRead:
 		if ok && bytes != nil {
@@ -278,10 +282,14 @@ func (c *clientStream) Invoke(ctx context.Context, method string, args interface
 	}
 
 	//write call with metatdata
-	c.writeCall(&nrpc.Call{
-		Method:   method,
-		Metadata: utils.MakeMetadata(*c.md),
-	})
+	call := &nrpc.Call{
+		Method: method,
+	}
+	if c.md != nil {
+		call.Metadata = utils.MakeMetadata(*c.md)
+	}
+
+	c.writeCall(call)
 
 	//write grpc args
 	c.writeData(&nrpc.Data{
@@ -289,6 +297,10 @@ func (c *clientStream) Invoke(ctx context.Context, method string, args interface
 	})
 
 	err = c.RecvMsg(reply)
+
+	if err != nil {
+
+	}
 
 	c.CloseSend()
 
@@ -349,7 +361,7 @@ func (c *clientStream) processData(data *nrpc.Data) {
 	c.recvWrite <- data.Data
 }
 
-func (c *clientStream) processEnd(end *nrpc.End) {
+func (c *clientStream) processEnd(end *nrpc.End) error {
 
 	if end.Trailer != nil && c.trailer != nil {
 		if *c.trailer == nil {
@@ -363,10 +375,11 @@ func (c *clientStream) processEnd(end *nrpc.End) {
 	if end.Status != nil {
 		c.log.WithField("status", end.Status).Info("cancel")
 		c.done()
-	} else {
-		c.log.Info("Server CloseSend")
-		c.recvWrite <- nil
-		close(c.recvWrite)
-		c.recvWrite = nil
+		return status.Error(codes.Code(end.Status.Code), end.Status.GetMessage())
 	}
+	c.log.Info("Server CloseSend")
+	c.recvWrite <- nil
+	close(c.recvWrite)
+	c.recvWrite = nil
+	return nil
 }

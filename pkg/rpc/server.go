@@ -51,10 +51,7 @@ func serverUnaryHandler(srv interface{}, handler serverMethodHandler) handlerFun
 		response, err := handler(srv, ctx, s.RecvMsg, interceptor)
 		if s.ctx.Err() == nil {
 			if err != nil {
-				st, _ := status.FromError(err)
-				if s.SendMsg(st.Proto()) == nil {
-					s.close(err)
-				}
+				s.close(err)
 				return
 			}
 			if s.SendMsg(response) == nil {
