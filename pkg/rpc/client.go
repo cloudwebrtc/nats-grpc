@@ -41,15 +41,17 @@ func NewClient(nc NatsConn, id string) *Client {
 	return c
 }
 
-// Stop gracefully stops a Client
-func (p *Client) Stop() {
+// Close gracefully stops a Client
+func (p *Client) Close() error {
 	p.cancel()
 	for name, st := range p.streams {
 		err := st.done()
 		if err != nil {
 			p.log.Errorf("Unsubscribe [%v] failed %v", name, err)
+			return err
 		}
 	}
+	return nil
 }
 
 func (c *Client) remove(subj string) {
