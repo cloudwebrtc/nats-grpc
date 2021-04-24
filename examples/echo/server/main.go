@@ -9,7 +9,10 @@ import (
 
 	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
+	"github.com/cloudwebrtc/nats-grpc/pkg/rpc/reflection"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type echoServer struct {
@@ -38,8 +41,9 @@ func (e *echoServer) Echo(stream echo.Echo_EchoServer) error {
 }
 
 func (e *echoServer) SayHello(ctx context.Context, req *echo.HelloRequest) (*echo.HelloReply, error) {
-	fmt.Printf("SayHello: req.Msg => %v\n", req.Msg)
-	return &echo.HelloReply{Msg: req.Msg + " world"}, nil
+	//fmt.Printf("SayHello: req.Msg => %v\n", req.Msg)
+	//return &echo.HelloReply{Msg: req.Msg + " world"}, nil
+	return nil, status.Errorf(codes.Unimplemented, "method SayHello2 not implemented")
 }
 
 func main() {
@@ -59,6 +63,9 @@ func main() {
 
 	ncs := rpc.NewServer(nc, "someid")
 	echo.RegisterEchoServer(ncs, &echoServer{})
+
+	// Register reflection service on gRPC server.
+	reflection.Register(ncs)
 
 	// Keep running until ^C.
 	fmt.Println("server is running, ^C quits.")

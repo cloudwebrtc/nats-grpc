@@ -72,6 +72,16 @@ func serverStreamHandler(srv interface{}, handler grpc.StreamHandler) handlerFun
 
 type handlerFunc func(s *serverStream)
 
+// serviceInfo wraps information about a service. It is very similar to
+// ServiceDesc and is constructed from it for internal purposes.
+type serviceInfo struct {
+	// Contains the implementation for the methods in this service.
+	serviceImpl interface{}
+	methods     map[string]*grpc.MethodDesc
+	streams     map[string]*grpc.StreamDesc
+	mdata       interface{}
+}
+
 // Server is the interface to gRPC over NATS
 type Server struct {
 	nc       NatsConn
@@ -83,79 +93,134 @@ type Server struct {
 	mu       sync.Mutex
 	subs     map[string]*nats.Subscription
 	id       string
+	services map[string]*serviceInfo // service name -> service info
 }
 
 // NewServer creates a new Proxy
 func NewServer(nc NatsConn, id string) *Server {
-	p := &Server{
+	s := &Server{
 		nc:       nc,
 		handlers: make(map[string]handlerFunc),
 		streams:  make(map[string]*serverStream),
 		subs:     make(map[string]*nats.Subscription),
+		services: make(map[string]*serviceInfo),
 		log:      logrus.WithField("sid", id),
 		id:       id,
 	}
-	p.ctx, p.cancel = context.WithCancel(context.Background())
-	return p
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+	return s
 }
 
 // Stop gracefully stops a Proxy
-func (p *Server) Stop() {
-	p.cancel()
-	for name, sub := range p.subs {
+func (s *Server) Stop() {
+	s.cancel()
+	for name, sub := range s.subs {
 		err := sub.Unsubscribe()
 		if err != nil {
-			p.log.Errorf("Unsubscribe [%v] failed %v", name, err)
+			s.log.Errorf("Unsubscribe [%v] failed %v", name, err)
 		}
 	}
 }
 
 // RegisterService is used to register gRPC services
-func (p *Server) RegisterService(sd *grpc.ServiceDesc, ss interface{}) {
+func (s *Server) RegisterService(sd *grpc.ServiceDesc, ss interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	prefix := fmt.Sprintf("nrpc.%v", sd.ServiceName)
-	if len(p.id) > 0 {
-		prefix = fmt.Sprintf("nrpc.%v.%v", p.id, sd.ServiceName)
+	if len(s.id) > 0 {
+		prefix = fmt.Sprintf("nrpc.%v.%v", s.id, sd.ServiceName)
 	}
 	subject := prefix + ".>"
-	p.log.Infof("QueueSubscribe: subject => %v, queue => %v", subject, sd.ServiceName)
-	sub, _ := p.nc.QueueSubscribe(subject, sd.ServiceName, p.onMessage)
+	s.log.Infof("QueueSubscribe: subject => %v, queue => %v", subject, sd.ServiceName)
+	sub, _ := s.nc.QueueSubscribe(subject, sd.ServiceName, s.onMessage)
 
-	p.subs[sd.ServiceName] = sub
+	s.subs[sd.ServiceName] = sub
 	for _, it := range sd.Methods {
 		desc := it
 		path := fmt.Sprintf("%v.%v", prefix, desc.MethodName)
-		p.handlers[path] = serverUnaryHandler(ss, serverMethodHandler(desc.Handler))
-		p.log.Infof("RegisterService: method path => %v", path)
+		s.handlers[path] = serverUnaryHandler(ss, serverMethodHandler(desc.Handler))
+		s.log.Infof("RegisterService: method path => %v", path)
 	}
 	for _, it := range sd.Streams {
 		desc := it
 		path := fmt.Sprintf("%v.%v", prefix, desc.StreamName)
-		p.handlers[path] = serverStreamHandler(ss, desc.Handler)
-		p.log.Infof("RegisterService: stream path => %v", path)
+		s.handlers[path] = serverStreamHandler(ss, desc.Handler)
+		s.log.Infof("RegisterService: stream path => %v", path)
 	}
+	s.nc.Flush()
 
-	p.nc.Flush()
+	s.register(sd, ss)
 }
 
-func (p *Server) onMessage(msg *nats.Msg) {
+func (s *Server) register(sd *grpc.ServiceDesc, ss interface{}) {
+	s.log.Infof("RegisterService(%q)", sd.ServiceName)
+
+	if _, ok := s.services[sd.ServiceName]; ok {
+		logger.Fatalf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName)
+	}
+	info := &serviceInfo{
+		serviceImpl: ss,
+		methods:     make(map[string]*grpc.MethodDesc),
+		streams:     make(map[string]*grpc.StreamDesc),
+		mdata:       sd.Metadata,
+	}
+	for i := range sd.Methods {
+		d := &sd.Methods[i]
+		info.methods[d.MethodName] = d
+	}
+	for i := range sd.Streams {
+		d := &sd.Streams[i]
+		info.streams[d.StreamName] = d
+	}
+	s.services[sd.ServiceName] = info
+}
+
+func (s *Server) GetServiceInfo() map[string]grpc.ServiceInfo {
+	ret := make(map[string]grpc.ServiceInfo)
+	for n, srv := range s.services {
+		methods := make([]grpc.MethodInfo, 0, len(srv.methods)+len(srv.streams))
+		for m := range srv.methods {
+			methods = append(methods, grpc.MethodInfo{
+				Name:           m,
+				IsClientStream: false,
+				IsServerStream: false,
+			})
+		}
+		for m, d := range srv.streams {
+			methods = append(methods, grpc.MethodInfo{
+				Name:           m,
+				IsClientStream: d.ClientStreams,
+				IsServerStream: d.ServerStreams,
+			})
+		}
+
+		ret[n] = grpc.ServiceInfo{
+			Methods:  methods,
+			Metadata: srv.mdata,
+		}
+	}
+	return ret
+}
+
+func (s *Server) onMessage(msg *nats.Msg) {
 	//p.log.Infof("Proxy.onMessage: subject %v, replay %v, data %v", msg.Subject, msg.Reply, string(msg.Data))
 	method := msg.Subject
-	log := p.log.WithField("method", method)
+	log := s.log.WithField("method", method)
 
-	p.mu.Lock()
-	stream, ok := p.streams[msg.Reply]
+	s.mu.Lock()
+	stream, ok := s.streams[msg.Reply]
 	if !ok {
-		stream = newServerStream(p, method, msg.Reply, log)
-		p.streams[msg.Reply] = stream
+		stream = newServerStream(s, method, msg.Reply, log)
+		s.streams[msg.Reply] = stream
 	}
-	p.mu.Unlock()
+	s.mu.Unlock()
 	go stream.onMessage(msg)
 }
 
-func (p *Server) remove(reply string) {
-	p.mu.Lock()
-	delete(p.streams, reply)
-	p.mu.Unlock()
+func (s *Server) remove(reply string) {
+	s.mu.Lock()
+	delete(s.streams, reply)
+	s.mu.Unlock()
 }
 
 var (
