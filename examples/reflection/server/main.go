@@ -9,7 +9,10 @@ import (
 
 	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
+	"github.com/cloudwebrtc/nats-grpc/pkg/rpc/reflection"
 	"github.com/nats-io/nats.go"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type echoServer struct {
@@ -17,29 +20,11 @@ type echoServer struct {
 }
 
 func (e *echoServer) Echo(stream echo.Echo_EchoServer) error {
-	i := int(0)
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			fmt.Println("err: " + err.Error())
-			return err
-		}
-		i++
-		fmt.Printf("Echo: req.Msg => %v, count => %v \n", req.Msg, i)
-		stream.Send(&echo.EchoReply{
-			Msg: req.Msg + fmt.Sprintf(" world-%v", i),
-		})
-
-		if i >= 100 {
-			//stop loop now, close streaming from server side.
-			return nil
-		}
-	}
+	return status.Errorf(codes.Unimplemented, "method Echo not implemented")
 }
 
 func (e *echoServer) SayHello(ctx context.Context, req *echo.HelloRequest) (*echo.HelloReply, error) {
-	fmt.Printf("SayHello: req.Msg => %v\n", req.Msg)
-	return &echo.HelloReply{Msg: req.Msg + " world"}, nil
+	return nil, status.Errorf(codes.Unimplemented, "method SayHello not implemented")
 }
 
 func main() {
@@ -59,6 +44,9 @@ func main() {
 
 	ncs := rpc.NewServer(nc, "someid")
 	echo.RegisterEchoServer(ncs, &echoServer{})
+
+	// Register reflection service on gRPC server.
+	reflection.Register(ncs)
 
 	// Keep running until ^C.
 	fmt.Println("server is running, ^C quits.")
