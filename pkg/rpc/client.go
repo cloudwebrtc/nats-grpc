@@ -154,10 +154,16 @@ func newClientStream(ctx context.Context, client *Client, subj string, log *logr
 }
 
 func (c *clientStream) Header() (metadata.MD, error) {
+	if c.header == nil {
+		c.header = &metadata.MD{}
+	}
 	return *c.header, nil
 }
 
 func (c *clientStream) Trailer() metadata.MD {
+	if c.trailer == nil {
+		c.trailer = &metadata.MD{}
+	}
 	return *c.trailer
 }
 
@@ -249,13 +255,20 @@ func (c *clientStream) SendMsg(m interface{}) error {
 		c.writeCall(call)
 	}
 
-	payload, err := proto.Marshal(m.(proto.Message))
-	if err != nil {
-		c.log.Errorf("clientStream.SendMsg failed: %v", err)
-		return err
-	}
-	data := &nrpc.Data{
-		Data: payload,
+	var data *nrpc.Data
+	if frame, ok := m.(*Frame); ok {
+		data = &nrpc.Data{
+			Data: frame.Payload,
+		}
+	} else {
+		payload, err := proto.Marshal(m.(proto.Message))
+		if err != nil {
+			c.log.Errorf("clientStream.SendMsg failed: %v", err)
+			return err
+		}
+		data = &nrpc.Data{
+			Data: payload,
+		}
 	}
 	//write grpc args
 	return c.writeData(data)
@@ -270,7 +283,12 @@ func (c *clientStream) RecvMsg(m interface{}) error {
 		return c.ctx.Err()
 	case bytes, ok := <-c.recvRead:
 		if ok && bytes != nil {
-			return proto.Unmarshal(bytes, m.(proto.Message))
+			if frame, ok := m.(*Frame); ok {
+				frame.Payload = bytes
+				return nil
+			} else {
+				return proto.Unmarshal(bytes, m.(proto.Message))
+			}
 		}
 		return io.EOF
 	}
@@ -345,8 +363,8 @@ func (c *clientStream) writeEnd(end *nrpc.End) error {
 func (c *clientStream) processBegin(begin *nrpc.Begin) error {
 	c.log = c.log.WithField("nrpc.Begin", begin.Header)
 	if begin.Header != nil && c.header != nil {
-		if *c.header == nil {
-			*c.header = metadata.MD{}
+		if c.header == nil {
+			c.header = &metadata.MD{}
 		}
 		for hdr, data := range begin.Header.Md {
 			c.header.Append(hdr, data.Values...)
@@ -366,8 +384,8 @@ func (c *clientStream) processData(data *nrpc.Data) {
 func (c *clientStream) processEnd(end *nrpc.End) error {
 
 	if end.Trailer != nil && c.trailer != nil {
-		if *c.trailer == nil {
-			*c.trailer = metadata.MD{}
+		if c.trailer == nil {
+			c.trailer = &metadata.MD{}
 		}
 		for hdr, data := range end.Trailer.Md {
 			c.trailer.Append(hdr, data.Values...)
