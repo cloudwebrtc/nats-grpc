@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc/reflection"
 	"github.com/jhump/protoreflect/grpcreflect"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 	rpb "google.golang.org/grpc/reflection/grpc_reflection_v1alpha"
 )
 
@@ -29,7 +29,7 @@ func main() {
 	// Connect to the NATS server.
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 	defer nc.Close()
 
@@ -43,14 +43,14 @@ func main() {
 	reflector := reflection.NewReflector(rc)
 	list, err := reflector.ListServices()
 	if err != nil {
-		log.Printf("ListServices: error %v\n", err)
+		log.Infof("ListServices: error %v\n", err)
 		return
 	}
 
-	log.Printf("ListServices: %v\n", list)
+	log.Infof("ListServices: %v\n", list)
 
 	for _, svc := range list {
-		log.Printf("Service => %v\n", svc)
+		log.Infof("Service => %v\n", svc)
 
 		mds, err := reflector.DescribeService(svc)
 		if err != nil {
@@ -58,7 +58,7 @@ func main() {
 		}
 
 		for _, md := range mds {
-			log.Printf("Method => %v\n", md.GetName())
+			log.Infof("Method => %v\n", md.GetName())
 		}
 	}
 }

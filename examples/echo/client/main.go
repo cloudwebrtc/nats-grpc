@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 )
 
 const (
@@ -28,7 +28,7 @@ func main() {
 	// Connect to the NATS server.
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 	defer nc.Close()
 
@@ -42,15 +42,15 @@ func main() {
 	//Request
 	reply, err := cli.SayHello(ctx, &echo.HelloRequest{Msg: "hello"})
 	if err != nil {
-		log.Printf("SayHello: error %v\n", err)
+		log.Infof("SayHello: error %v\n", err)
 		return
 	}
-	log.Printf("SayHello: %s\n", reply.GetMsg())
+	log.Infof("SayHello: %s\n", reply.GetMsg())
 
 	//Streaming
 	stream, err := cli.Echo(ctx)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 
 	stream.Send(&echo.EchoRequest{
@@ -61,10 +61,10 @@ func main() {
 	for {
 		reply, err := stream.Recv()
 		if err != nil {
-			log.Fatalf("Echo: err %s", err)
+			log.Errorf("Echo: err %s", err)
 			break
 		}
-		log.Printf("EchoReply: reply.Msg => %s, count => %v", reply.Msg, i)
+		log.Infof("EchoReply: reply.Msg => %s, count => %v", reply.Msg, i)
 
 		i++
 		if i <= 100 {

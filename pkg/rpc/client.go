@@ -5,26 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"sync"
 
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/cloudwebrtc/nats-grpc/pkg/utils"
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 	"github.com/sirupsen/logrus"
 	grpc "google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 type Client struct {
 	nc      NatsConn
 	ctx     context.Context
 	cancel  context.CancelFunc
-	log     *logrus.Entry
+	log     *logrus.Logger
 	streams map[string]*clientStream
 	id      string
 	mu      sync.Mutex
@@ -35,7 +35,7 @@ func NewClient(nc NatsConn, id string) *Client {
 		nc:      nc,
 		id:      id,
 		streams: make(map[string]*clientStream),
-		log:     logrus.WithField("cli", ""),
+		log:     log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Client", log.Fields{"cid": id}),
 	}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c
@@ -96,7 +96,7 @@ type clientStream struct {
 	lastErr   error
 	ctx       context.Context
 	cancel    context.CancelFunc
-	log       *logrus.Entry
+	log       *logrus.Logger
 	client    *Client
 	subject   string
 	reply     string
@@ -108,7 +108,7 @@ type clientStream struct {
 	hasBegun  bool
 }
 
-func newClientStream(ctx context.Context, client *Client, subj string, log *logrus.Entry, opts ...grpc.CallOption) *clientStream {
+func newClientStream(ctx context.Context, client *Client, subj string, log *logrus.Logger, opts ...grpc.CallOption) *clientStream {
 	stream := &clientStream{
 		client:  client,
 		log:     log,
@@ -297,7 +297,7 @@ func (c *clientStream) RecvMsg(m interface{}) error {
 func (c *clientStream) Invoke(ctx context.Context, method string, args interface{}, reply interface{}, opts ...grpc.CallOption) error {
 	payload, err := proto.Marshal(args.(proto.Message))
 	if err != nil {
-		log.Fatalf("%v for request", err)
+		c.log.Fatalf("%v for request", err)
 		return err
 	}
 
@@ -361,7 +361,7 @@ func (c *clientStream) writeEnd(end *nrpc.End) error {
 }
 
 func (c *clientStream) processBegin(begin *nrpc.Begin) error {
-	c.log = c.log.WithField("nrpc.Begin", begin.Header)
+	c.log.Debugf("nrpc.Begin: %v", begin.Header)
 	if begin.Header != nil && c.header != nil {
 		if c.header == nil {
 			c.header = &metadata.MD{}

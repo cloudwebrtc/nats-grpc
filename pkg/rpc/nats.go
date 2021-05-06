@@ -4,16 +4,12 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/sirupsen/logrus"
+	log "github.com/pion/ion-log"
 )
 
 var (
-	logger *logrus.Entry
+	logger = log.NewLogger(log.InfoLevel, "nats-grpc")
 )
-
-func init() {
-	logger = logrus.WithField("cli", "")
-}
 
 //NatsConn nats connection.
 type NatsConn interface {

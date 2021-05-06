@@ -9,13 +9,14 @@ import (
 
 	"github.com/cloudwebrtc/nats-grpc/pkg/protos/nrpc"
 	"github.com/cloudwebrtc/nats-grpc/pkg/utils"
-	"github.com/golang/protobuf/proto"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // redefine grpc.serverMethodHandler as it is not exposed
@@ -87,7 +88,7 @@ type Server struct {
 	nc       NatsConn
 	ctx      context.Context
 	cancel   context.CancelFunc
-	log      *logrus.Entry
+	log      *logrus.Logger
 	handlers map[string]handlerFunc
 	streams  map[string]*serverStream
 	mu       sync.Mutex
@@ -104,7 +105,7 @@ func NewServer(nc NatsConn, id string) *Server {
 		streams:  make(map[string]*serverStream),
 		subs:     make(map[string]*nats.Subscription),
 		services: make(map[string]*serviceInfo),
-		log:      logrus.WithField("sid", id),
+		log:      log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Server", log.Fields{"sid": id}),
 		id:       id,
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
@@ -156,7 +157,7 @@ func (s *Server) register(sd *grpc.ServiceDesc, ss interface{}) {
 	s.log.Infof("RegisterService(%q)", sd.ServiceName)
 
 	if _, ok := s.services[sd.ServiceName]; ok {
-		logger.Fatalf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName)
+		s.log.Fatalf("grpc: Server.RegisterService found duplicate service registration for %q", sd.ServiceName)
 	}
 	info := &serviceInfo{
 		serviceImpl: ss,

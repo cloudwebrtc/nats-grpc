@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	nrpc "github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -31,7 +30,7 @@ func main() {
 	// Connect to the NATS server.
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 	defer nc.Close()
 
@@ -48,25 +47,25 @@ func main() {
 	//Request
 	reply, err := cli.SayHello(ctx, &echo.HelloRequest{Msg: "hello"}, grpc.Header(&header), grpc.Trailer(&trailer))
 	if err != nil {
-		log.Printf("SayHello: error %v\n", err)
+		log.Infof("SayHello: error %v", err)
 		return
 	}
-	log.Printf("SayHello: %s\n", reply.GetMsg())
+	log.Infof("SayHello: %s", reply.GetMsg())
 
 	if t, ok := header["timestamp"]; ok {
-		fmt.Printf("timestamp from header:\n")
+		log.Infof("timestamp from header:")
 		for i, e := range t {
-			fmt.Printf(" %d. %s\n", i, e)
+			log.Infof(" %d. %s", i, e)
 		}
 	} else {
-		log.Fatal("timestamp expected but doesn't exist in header")
+		log.Errorf("timestamp expected but doesn't exist in header")
 	}
 	if l, ok := header["location"]; ok {
-		fmt.Printf("location from header:\n")
+		log.Infof("location from header:\n")
 		for i, e := range l {
-			fmt.Printf(" %d. %s\n", i, e)
+			log.Infof(" %d. %s\n", i, e)
 		}
 	} else {
-		log.Fatal("location expected but doesn't exist in header")
+		log.Errorf("location expected but doesn't exist in header")
 	}
 }

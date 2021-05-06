@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -23,18 +23,18 @@ type echoServer struct {
 
 func (e *echoServer) SayHello(ctx context.Context, req *echo.HelloRequest) (*echo.HelloReply, error) {
 	method, _ := grpc.Method(ctx)
-	fmt.Println("method: " + method)
+	log.Infof("method: %v", method)
 
 	// Read metadata from client.
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Errorf(codes.DataLoss, "SayHello: failed to get metadata")
 	}
-	fmt.Printf("md: %v", md)
+	log.Infof("md: %v", md)
 	if t, ok := md["timestamp"]; ok {
-		fmt.Printf("timestamp from metadata:\n")
+		log.Infof("timestamp from metadata:")
 		for i, e := range t {
-			fmt.Printf(" %d. %s\n", i, e)
+			log.Infof(" %d. %s\n", i, e)
 		}
 	}
 
@@ -59,7 +59,7 @@ func main() {
 	// Connect to the NATS server.
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 	defer nc.Close()
 

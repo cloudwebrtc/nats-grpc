@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"os/signal"
 
 	"github.com/cloudwebrtc/nats-grpc/examples/protos/echo"
 	"github.com/cloudwebrtc/nats-grpc/pkg/rpc"
 	"github.com/nats-io/nats.go"
+	log "github.com/pion/ion-log"
 )
 
 type echoServer struct {
@@ -21,11 +21,11 @@ func (e *echoServer) Echo(stream echo.Echo_EchoServer) error {
 	for {
 		req, err := stream.Recv()
 		if err != nil {
-			fmt.Println("err: " + err.Error())
+			log.Errorf("err: " + err.Error())
 			return err
 		}
 		i++
-		fmt.Printf("Echo: req.Msg => %v, count => %v \n", req.Msg, i)
+		log.Infof("Echo: req.Msg => %v, count => %v", req.Msg, i)
 		stream.Send(&echo.EchoReply{
 			Msg: req.Msg + fmt.Sprintf(" world-%v", i),
 		})
@@ -53,7 +53,7 @@ func main() {
 	// Connect to the NATS server.
 	nc, err := nats.Connect(natsURL, opts...)
 	if err != nil {
-		log.Fatal(err)
+		log.Errorf("%v", err)
 	}
 	defer nc.Close()
 
