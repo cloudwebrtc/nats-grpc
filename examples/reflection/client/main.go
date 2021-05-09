@@ -33,7 +33,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	ncli := nrpc.NewClient(nc, "someid")
+	ncli := nrpc.NewClient(nc, "someid", "unkown")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 100000*time.Millisecond)
 	defer cancel()

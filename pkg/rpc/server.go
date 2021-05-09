@@ -93,20 +93,20 @@ type Server struct {
 	streams  map[string]*serverStream
 	mu       sync.Mutex
 	subs     map[string]*nats.Subscription
-	id       string
+	nid      string
 	services map[string]*serviceInfo // service name -> service info
 }
 
 // NewServer creates a new Proxy
-func NewServer(nc NatsConn, id string) *Server {
+func NewServer(nc NatsConn, nid string) *Server {
 	s := &Server{
 		nc:       nc,
 		handlers: make(map[string]handlerFunc),
 		streams:  make(map[string]*serverStream),
 		subs:     make(map[string]*nats.Subscription),
 		services: make(map[string]*serviceInfo),
-		log:      log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Server", log.Fields{"sid": id}),
-		id:       id,
+		log:      log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Server", log.Fields{"self-nid": nid}),
+		nid:      nid,
 	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	return s
@@ -123,13 +123,23 @@ func (s *Server) Stop() {
 	}
 }
 
+func (s *Server) CloseStream(nid string) error {
+	for name, st := range s.streams {
+		if st.pnid == nid {
+			st.done()
+			s.log.Infof("CloseStream nid = %v, name = %v", nid, name)
+		}
+	}
+	return nil
+}
+
 // RegisterService is used to register gRPC services
 func (s *Server) RegisterService(sd *grpc.ServiceDesc, ss interface{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	prefix := fmt.Sprintf("nrpc.%v", sd.ServiceName)
-	if len(s.id) > 0 {
-		prefix = fmt.Sprintf("nrpc.%v.%v", s.id, sd.ServiceName)
+	if len(s.nid) > 0 {
+		prefix = fmt.Sprintf("nrpc.%v.%v", s.nid, sd.ServiceName)
 	}
 	subject := prefix + ".>"
 	s.log.Infof("QueueSubscribe: subject => %v, queue => %v", subject, sd.ServiceName)
@@ -235,7 +245,7 @@ var (
 type serverStream struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
-	proxy     *Server
+	server    *Server
 	log       *logrus.Entry
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte
@@ -245,16 +255,17 @@ type serverStream struct {
 	trailer   metadata.MD // send trialer to client
 	method    string
 	reply     string
+	pnid      string
 }
 
-func newServerStream(proxy *Server, method, reply string, log *logrus.Entry) *serverStream {
+func newServerStream(server *Server, method, reply string, log *logrus.Entry) *serverStream {
 	s := &serverStream{
-		proxy:  proxy,
+		server: server,
 		log:    log,
 		method: method,
 		reply:  reply,
 	}
-	s.ctx, s.cancel = context.WithCancel(proxy.ctx)
+	s.ctx, s.cancel = context.WithCancel(server.ctx)
 	recv := make(chan []byte, 1)
 	s.recvRead = recv
 	s.recvWrite = recv
@@ -263,7 +274,7 @@ func newServerStream(proxy *Server, method, reply string, log *logrus.Entry) *se
 
 func (s *serverStream) done() {
 	s.cancel()
-	s.proxy.remove(s.reply)
+	s.server.remove(s.reply)
 }
 
 func (s *serverStream) onRequest(msg *nats.Msg, request *nrpc.Request) {
@@ -282,7 +293,7 @@ func (s *serverStream) onRequest(msg *nats.Msg, request *nrpc.Request) {
 
 func (s *serverStream) processCall(call *nrpc.Call) {
 	s.log = s.log.WithField("method", s.method)
-	handlerFunc, ok := s.proxy.handlers[s.method]
+	handlerFunc, ok := s.server.handlers[s.method]
 	if !ok {
 		s.close(status.Error(codes.Unimplemented, codes.Unimplemented.String()))
 		return
@@ -299,6 +310,7 @@ func (s *serverStream) processCall(call *nrpc.Call) {
 			s.md = metadata.Join(s.md, md)
 		}
 	}
+	s.pnid = call.Nid
 	go handlerFunc(s)
 }
 
@@ -328,6 +340,7 @@ func (s *serverStream) beginMaybe() error {
 		if s.header != nil {
 			return s.writeBegin(&nrpc.Begin{
 				Header: utils.MakeMetadata(s.header),
+				Nid:    s.server.nid,
 			})
 		}
 	}
@@ -403,7 +416,7 @@ func (s *serverStream) SendMsg(m interface{}) (err error) {
 	if err == nil {
 		data, err := proto.Marshal(m.(proto.Message))
 		if err == nil {
-			err = s.writeData(&nrpc.Data{
+			s.writeData(&nrpc.Data{
 				Data: data,
 			})
 		}
@@ -429,7 +442,7 @@ func (s *serverStream) writeResponse(response *nrpc.Response) error {
 	if err != nil {
 		return err
 	}
-	return s.proxy.nc.Publish(s.reply, data)
+	return s.server.nc.Publish(s.reply, data)
 }
 
 func (s *serverStream) writeBegin(begin *nrpc.Begin) error {

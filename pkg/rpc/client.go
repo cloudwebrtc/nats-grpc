@@ -26,16 +26,18 @@ type Client struct {
 	cancel  context.CancelFunc
 	log     *logrus.Logger
 	streams map[string]*clientStream
-	id      string
+	svcid   string
+	nid     string
 	mu      sync.Mutex
 }
 
-func NewClient(nc NatsConn, id string) *Client {
+func NewClient(nc NatsConn, svcid string, nid string) *Client {
 	c := &Client{
 		nc:      nc,
-		id:      id,
+		svcid:   svcid,
+		nid:     nid,
 		streams: make(map[string]*clientStream),
-		log:     log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Client", log.Fields{"cid": id}),
+		log:     log.NewLoggerWithFields(log.DebugLevel, "nats-grpc.Client", log.Fields{"svc-id": svcid, "self-nid": nid}),
 	}
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	return c
@@ -54,6 +56,19 @@ func (p *Client) Close() error {
 	return nil
 }
 
+func (p *Client) CloseStream(nid string) error {
+	for name, st := range p.streams {
+		if st.pnid == nid {
+			err := st.done()
+			if err != nil {
+				p.log.Errorf("Unsubscribe [%v] failed %v", name, err)
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (c *Client) remove(subj string) {
 	c.mu.Lock()
 	delete(c.streams, subj)
@@ -64,8 +79,8 @@ func (c *Client) remove(subj string) {
 // into reply.
 func (c *Client) Invoke(ctx context.Context, method string, args interface{}, reply interface{}, opts ...grpc.CallOption) error {
 	prefix := "nrpc"
-	if len(c.id) > 0 {
-		prefix = fmt.Sprintf("nrpc.%v", c.id)
+	if len(c.svcid) > 0 {
+		prefix = fmt.Sprintf("nrpc.%v", c.svcid)
 	}
 	subj := prefix + strings.ReplaceAll(method, "/", ".")
 	stream := newClientStream(ctx, c, subj, c.log, opts...)
@@ -78,8 +93,8 @@ func (c *Client) Invoke(ctx context.Context, method string, args interface{}, re
 //NewStream begins a streaming RPC.
 func (c *Client) NewStream(ctx context.Context, desc *grpc.StreamDesc, method string, opts ...grpc.CallOption) (grpc.ClientStream, error) {
 	prefix := "nrpc"
-	if len(c.id) > 0 {
-		prefix = fmt.Sprintf("nrpc.%v", c.id)
+	if len(c.svcid) > 0 {
+		prefix = fmt.Sprintf("nrpc.%v", c.svcid)
 	}
 	subj := prefix + strings.ReplaceAll(method, "/", ".")
 	stream := newClientStream(ctx, c, subj, c.log, opts...)
@@ -106,6 +121,7 @@ type clientStream struct {
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte
 	hasBegun  bool
+	pnid      string
 }
 
 func newClientStream(ctx context.Context, client *Client, subj string, log *logrus.Logger, opts ...grpc.CallOption) *clientStream {
@@ -247,6 +263,7 @@ func (c *clientStream) SendMsg(m interface{}) error {
 		c.hasBegun = true
 		call := &nrpc.Call{
 			Method: c.subject,
+			Nid:    c.client.nid,
 		}
 		if c.md != nil {
 			call.Metadata = utils.MakeMetadata(*c.md)
@@ -319,7 +336,7 @@ func (c *clientStream) Invoke(ctx context.Context, method string, args interface
 	err = c.RecvMsg(reply)
 
 	if err != nil {
-
+		c.log.Errorf("%v for c.RecvMsg", err)
 	}
 
 	c.CloseSend()
@@ -370,6 +387,7 @@ func (c *clientStream) processBegin(begin *nrpc.Begin) error {
 			c.header.Append(hdr, data.Values...)
 		}
 	}
+	c.pnid = begin.Nid
 	return nil
 }
 

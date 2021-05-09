@@ -31,10 +31,12 @@ message Metadata {
 message Call {
 	string method = 1;
 	Metadata metadata = 2;
+	string nid = 3;
 }
 
 message Begin {
 	Metadata header = 1;
+	string nid = 2;
 }
 
 message Data {

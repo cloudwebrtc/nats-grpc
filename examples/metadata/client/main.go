@@ -34,7 +34,7 @@ func main() {
 	}
 	defer nc.Close()
 
-	ncli := nrpc.NewClient(nc, "someid")
+	ncli := nrpc.NewClient(nc, "someid", "unkown")
 
 	cli := echo.NewEchoClient(ncli)
 
