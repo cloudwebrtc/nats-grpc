@@ -362,7 +362,7 @@ func (c *clientStream) writeEnd(end *nrpc.End) error {
 
 func (c *clientStream) processBegin(begin *nrpc.Begin) error {
 	c.log.Debugf("nrpc.Begin: %v", begin.Header)
-	if begin.Header != nil && c.header != nil {
+	if begin.Header != nil {
 		if c.header == nil {
 			c.header = &metadata.MD{}
 		}
