@@ -56,17 +56,12 @@ func (p *Client) Close() error {
 	return nil
 }
 
-func (p *Client) CloseStream(nid string) error {
-	for name, st := range p.streams {
-		if st.pnid == nid {
-			err := st.done()
-			if err != nil {
-				p.log.Errorf("Unsubscribe [%v] failed %v", name, err)
-				return err
-			}
-		}
+func (p *Client) CloseStream(nid string) bool {
+	if p.svcid == nid {
+		p.Close()
+		return true
 	}
-	return nil
+	return false
 }
 
 func (c *Client) remove(subj string) {
