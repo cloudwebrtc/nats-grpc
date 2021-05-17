@@ -133,7 +133,7 @@ func newClientStream(ctx context.Context, client *Client, subj string, log *logr
 	stream.recvRead = recv
 	stream.recvWrite = recv
 
-	stream.msgCh = make(chan *nats.Msg, 1)
+	stream.msgCh = make(chan *nats.Msg, 8192)
 	stream.sub, _ = client.nc.ChanSubscribe(stream.reply, stream.msgCh)
 
 	md, ok := metadata.FromOutgoingContext(ctx)
