@@ -242,9 +242,10 @@ func (c *clientStream) done() error {
 	if !c.closed {
 		c.closed = true
 		c.cancel()
+		err := c.sub.Unsubscribe()
 		close(c.msgCh)
 		c.client.remove(c.subject)
-		return c.sub.Unsubscribe()
+		return err
 	}
 	return errors.New("Client Streaming already closed")
 }
