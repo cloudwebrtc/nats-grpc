@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/fullstorydev/grpcurl v1.8.0
 	github.com/golang/protobuf v1.5.2
-	github.com/jhump/protoreflect v1.8.2
+	github.com/jhump/protoreflect v1.9.0
 	github.com/nats-io/nats-server/v2 v2.1.9 // indirect
 	github.com/nats-io/nats.go v1.10.0
 	github.com/pion/ion-log v1.2.0
