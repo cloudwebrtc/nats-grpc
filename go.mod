@@ -12,7 +12,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.6.1 // indirect
-	golang.org/x/net v0.0.0-20210316092652-d523dce5a7f4
+	golang.org/x/net v0.0.0-20210825183410-e898025ed96a
 	google.golang.org/genproto v0.0.0-20210505142820-a42aa055cf76
 	google.golang.org/grpc v1.36.1
 	google.golang.org/protobuf v1.26.0
