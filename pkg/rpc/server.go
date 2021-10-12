@@ -249,6 +249,7 @@ type serverStream struct {
 	log       *logrus.Entry
 	recvRead  <-chan []byte
 	recvWrite chan<- []byte
+	muWrite   sync.Mutex
 	hasBegun  bool
 	md        metadata.MD // recevied metadata from client
 	header    metadata.MD // send header to client
@@ -327,10 +328,14 @@ func (s *serverStream) processEnd(end *nrpc.End) {
 		s.log.WithField("status", end.Status).Info("cancel")
 		s.done()
 	} else {
+		s.muWrite.Lock()
+		defer  s.muWrite.Unlock()
 		s.log.Info("closeSend")
-		s.recvWrite <- nil
-		close(s.recvWrite)
-		s.recvWrite = nil
+		if s.recvWrite !=nil {
+			s.recvWrite <- nil
+			close(s.recvWrite)
+			s.recvWrite = nil
+		}
 	}
 }
 
