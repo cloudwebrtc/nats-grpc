@@ -26,7 +26,7 @@ var (
 //
 // This can *only* be used if the `server` also uses grpcproxy.CodecForServer() ServerOption.
 func RegisterService(server *grpc.Server, director StreamDirector, serviceName string, methodNames ...string) {
-	streamer := &handler{director}
+	streamer := &handler{director, true}
 	fakeDesc := &grpc.ServiceDesc{
 		ServiceName: serviceName,
 		HandlerType: (*interface{})(nil),
@@ -49,12 +49,18 @@ func RegisterService(server *grpc.Server, director StreamDirector, serviceName s
 //
 // This can *only* be used if the `server` also uses grpcproxy.CodecForServer() ServerOption.
 func TransparentHandler(director StreamDirector) grpc.StreamHandler {
-	streamer := &handler{director}
+	streamer := &handler{director, true}
+	return streamer.handler
+}
+
+func TransparentLongConnectionHandler(director StreamDirector) grpc.StreamHandler {
+	streamer := &handler{director, false}
 	return streamer.handler
 }
 
 type handler struct {
-	director StreamDirector
+	director      StreamDirector
+	autoCloseSend bool
 }
 
 // handler is where the real magic of proxying happens.
@@ -107,7 +113,9 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 			if s2cErr == io.EOF {
 				// this is the happy case where the sender has encountered io.EOF, and won't be sending anymore./
 				// the clientStream>serverStream may continue pumping though.
-				clientStream.CloseSend()
+				if s.autoCloseSend {
+					clientStream.CloseSend()
+				}
 			} else {
 				// however, we may have gotten a receive error (stream disconnected, a read error etc) in which case we need
 				// to cancel the clientStream to the backend, let all of its goroutines be freed up by the CancelFunc and
