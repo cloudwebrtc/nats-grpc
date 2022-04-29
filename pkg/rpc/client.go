@@ -295,15 +295,15 @@ func (c *clientStream) RecvMsg(m interface{}) error {
 		}
 		return c.ctx.Err()
 	case bytes, ok := <-c.recvRead:
-		if ok && bytes != nil {
-			if frame, ok := m.(*Frame); ok {
-				frame.Payload = bytes
-				return nil
-			} else {
-				return proto.Unmarshal(bytes, m.(proto.Message))
-			}
+		if !ok {
+			return io.EOF
 		}
-		return io.EOF
+
+		if frame, ok := m.(*Frame); ok {
+			frame.Payload = bytes
+			return nil
+		}
+		return proto.Unmarshal(bytes, m.(proto.Message))
 	}
 }
 
