@@ -329,9 +329,9 @@ func (s *serverStream) processEnd(end *nrpc.End) {
 		s.done()
 	} else {
 		s.muWrite.Lock()
-		defer  s.muWrite.Unlock()
+		defer s.muWrite.Unlock()
 		s.log.Info("closeSend")
-		if s.recvWrite !=nil {
+		if s.recvWrite != nil {
 			s.recvWrite <- nil
 			close(s.recvWrite)
 			s.recvWrite = nil
@@ -434,10 +434,10 @@ func (s *serverStream) RecvMsg(m interface{}) error {
 	case <-s.ctx.Done():
 		return s.ctx.Err()
 	case bytes, ok := <-s.recvRead:
-		if ok && bytes != nil {
-			return proto.Unmarshal(bytes, m.(proto.Message))
+		if !ok {
+			return io.EOF
 		}
-		return io.EOF
+		return proto.Unmarshal(bytes, m.(proto.Message))
 	}
 }
 
