@@ -46,6 +46,8 @@ func NewClient(nc NatsConn, svcid string, nid string) *Client {
 // Close gracefully stops a Client
 func (p *Client) Close() error {
 	p.cancel()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	for name, st := range p.streams {
 		err := st.done()
 		if err != nil {
