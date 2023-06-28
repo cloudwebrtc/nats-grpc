@@ -8,7 +8,7 @@ require (
 	github.com/jhump/protoreflect v1.8.2
 	github.com/nats-io/nats-server/v2 v2.1.9 // indirect
 	github.com/nats-io/nats.go v1.12.0
-	github.com/pion/ion-log v1.2.0
+	github.com/pion/ion-log v1.2.1
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.8.1
 	github.com/stretchr/testify v1.6.1 // indirect
